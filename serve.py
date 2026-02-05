@@ -7,7 +7,7 @@ import os
 app = FastAPI()
 
 # RunPod network storage mounts to /workspace
-MODEL_PATH = "/workspace/model"  # <-- Your model location
+MODEL_PATH = "/workspace/model/deepseek-llm-67b-base.Q5_K_M.gguf"  # <-- Your model location
 
 print(f"Loading model from {MODEL_PATH}...")
 tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH)
