@@ -1,20 +1,20 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
-from transformers import AutoModelForCausalLM, AutoTokenizer
-import torch
+from llama_cpp import Llama
 import os
 
 app = FastAPI()
 
-# RunPod network storage mounts to /workspace
-MODEL_PATH = "/workspace/model/deepseek-llm-67b-base.Q5_K_M.gguf"  # <-- Your model location
+# GGUF files need llama-cpp-python, not transformers
+MODEL_PATH = "/workspace/model/deepseek-llm-67b-base.Q5_K_M.gguf"
 
-print(f"Loading model from {MODEL_PATH}...")
-tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH)
-model = AutoModelForCausalLM.from_pretrained(
-    MODEL_PATH,
-    torch_dtype=torch.float16,
-    device_map="auto"
+print(f"Loading GGUF model from {MODEL_PATH}...")
+model = Llama(
+    model_path=MODEL_PATH,
+    n_gpu_layers=-1,  # -1 = offload all layers to GPU
+    n_ctx=4096,  # context window
+    n_batch=512,
+    verbose=True
 )
 print("Model loaded!")
 
@@ -25,17 +25,28 @@ class ChatRequest(BaseModel):
 
 @app.post("/v1/chat/completions")
 async def chat(request: ChatRequest):
-    prompt = tokenizer.apply_chat_template(request.messages, tokenize=False, add_generation_prompt=True)
-    inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
+    # Format messages into a single prompt string
+    prompt = ""
+    for msg in request.messages:
+        role = msg.get("role", "user")
+        content = msg.get("content", "")
+        if role == "system":
+            prompt += f"System: {content}\n"
+        elif role == "user":
+            prompt += f"User: {content}\n"
+        elif role == "assistant":
+            prompt += f"Assistant: {content}\n"
+    prompt += "Assistant:"
     
-    outputs = model.generate(
-        **inputs,
-        max_new_tokens=request.max_tokens,
+    response = model(
+        prompt,
+        max_tokens=request.max_tokens,
         temperature=request.temperature,
-        do_sample=True
+        stop=["User:", "\n\n"],
+        echo=False
     )
     
-    response_text = tokenizer.decode(outputs[0][inputs['input_ids'].shape[1]:], skip_special_tokens=True)
+    response_text = response['choices'][0]['text'].strip()
     
     return {
         "choices": [{
@@ -49,3 +60,11 @@ async def chat(request: ChatRequest):
 @app.get("/health")
 async def health():
     return {"status": "healthy", "model_loaded": True}
+```
+
+**Update your requirements.txt:**
+```
+fastapi
+uvicorn[standard]
+llama-cpp-python
+pydantic
